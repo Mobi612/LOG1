@@ -1,0 +1,280 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#define ARQ_VEICULOS "veiculos.dat"
+#define ARQ_CLIENTES "clientes.dat"
+#define ARQ_LOCACOES "locacoes.dat"
+
+/* ==========================
+   STRUCTS
+   ========================== */
+
+typedef struct {
+    char placa[10];
+    char modelo[50];
+    char marca[50];
+    int ano;
+    float valorDiaria;
+    int status; // 0 = Disponivel | 1 = Alugado
+} Veiculo;
+
+typedef struct {
+    char nome[100];
+    char cnh[20];
+    char telefone[20];
+} Cliente;
+
+typedef struct {
+    char placaVeiculo[10];
+    char cnhCliente[20];
+    int dias;
+    float valorTotal;
+    int ativa; // 1 = Ativa | 0 = Finalizada
+} Locacao;
+
+/* ==========================
+   PROTOTIPOS
+   ========================== */
+
+void menuVeiculos();
+void menuClientes();
+void menuLocacoes();
+void menuRelatorios();
+
+void cadastrarVeiculo();
+void listarVeiculos();
+int buscarVeiculo(char placa[]);
+
+/* ==========================
+   MAIN
+   ========================== */
+
+int main() {
+
+    int opcao;
+
+    do {
+
+        printf("\n=================================");
+        printf("\n  LOCADORA DE VEICULOS");
+        printf("\n=================================");
+        printf("\n1 - Veiculos");
+        printf("\n2 - Clientes");
+        printf("\n3 - Locacoes");
+        printf("\n4 - Relatorios");
+        printf("\n0 - Sair");
+        printf("\nOpcao: ");
+        scanf("%d", &opcao);
+
+        switch(opcao) {
+
+            case 1:
+                menuVeiculos();
+                break;
+
+            case 2:
+                menuClientes();
+                break;
+
+            case 3:
+                menuLocacoes();
+                break;
+
+            case 4:
+                menuRelatorios();
+                break;
+
+            case 0:
+                printf("\nEncerrando sistema...\n");
+                break;
+
+            default:
+                printf("\nOpcao invalida!\n");
+        }
+
+    } while(opcao != 0);
+
+    return 0;
+}
+
+/* ==========================
+   MENU VEICULOS
+   ========================== */
+
+void menuVeiculos() {
+
+    int opcao;
+
+    do {
+
+        printf("\n\n===== MENU VEICULOS =====");
+        printf("\n1 - Cadastrar");
+        printf("\n2 - Listar");
+        printf("\n3 - Buscar");
+        printf("\n0 - Voltar");
+        printf("\nOpcao: ");
+        scanf("%d", &opcao);
+
+        switch(opcao) {
+
+            case 1:
+                cadastrarVeiculo();
+                break;
+
+            case 2:
+                listarVeiculos();
+                break;
+
+            case 3: {
+
+                char placa[10];
+
+                printf("\nDigite a placa: ");
+                scanf("%s", placa);
+
+                if(buscarVeiculo(placa))
+                    printf("\nVeiculo encontrado!");
+                else
+                    printf("\nVeiculo nao encontrado!");
+
+                break;
+            }
+
+            case 0:
+                break;
+
+            default:
+                printf("\nOpcao invalida!");
+        }
+
+    } while(opcao != 0);
+}
+
+/* ==========================
+   CADASTRAR VEICULO
+   ========================== */
+
+void cadastrarVeiculo() {
+
+    FILE *arq;
+    Veiculo v;
+
+    arq = fopen(ARQ_VEICULOS, "ab");
+
+    if(arq == NULL) {
+        printf("\nErro ao abrir arquivo!");
+        return;
+    }
+
+    printf("\nPlaca: ");
+    scanf("%s", v.placa);
+
+    printf("Modelo: ");
+    scanf(" %[^\n]", v.modelo);
+
+    printf("Marca: ");
+    scanf(" %[^\n]", v.marca);
+
+    printf("Ano: ");
+    scanf("%d", &v.ano);
+
+    printf("Valor da diaria: ");
+    scanf("%f", &v.valorDiaria);
+
+    v.status = 0;
+
+    fwrite(&v, sizeof(Veiculo), 1, arq);
+
+    fclose(arq);
+
+    printf("\nVeiculo cadastrado com sucesso!\n");
+}
+
+/* ==========================
+   LISTAR VEICULOS
+   ========================== */
+
+void listarVeiculos() {
+
+    FILE *arq;
+    Veiculo v;
+
+    arq = fopen(ARQ_VEICULOS, "rb");
+
+    if(arq == NULL) {
+        printf("\nNenhum veiculo cadastrado.\n");
+        return;
+    }
+
+    printf("\n\n===== VEICULOS =====\n");
+
+    while(fread(&v, sizeof(Veiculo), 1, arq) == 1) {
+
+        printf("\n---------------------");
+        printf("\nPlaca: %s", v.placa);
+        printf("\nModelo: %s", v.modelo);
+        printf("\nMarca: %s", v.marca);
+        printf("\nAno: %d", v.ano);
+        printf("\nDiaria: R$ %.2f", v.valorDiaria);
+
+        if(v.status == 0)
+            printf("\nStatus: Disponivel");
+        else
+            printf("\nStatus: Alugado");
+
+        printf("\n---------------------\n");
+    }
+
+    fclose(arq);
+}
+
+/* ==========================
+   BUSCAR VEICULO
+   ========================== */
+
+int buscarVeiculo(char placa[]) {
+
+    FILE *arq;
+    Veiculo v;
+
+    arq = fopen(ARQ_VEICULOS, "rb");
+
+    if(arq == NULL)
+        return 0;
+
+    while(fread(&v, sizeof(Veiculo), 1, arq) == 1) {
+
+        if(strcmp(v.placa, placa) == 0) {
+
+            printf("\n");
+            printf("\nPlaca: %s", v.placa);
+            printf("\nModelo: %s", v.modelo);
+            printf("\nMarca: %s", v.marca);
+            printf("\nAno: %d", v.ano);
+            printf("\nDiaria: R$ %.2f", v.valorDiaria);
+
+            fclose(arq);
+            return 1;
+        }
+    }
+
+    fclose(arq);
+    return 0;
+}
+
+/* ==========================
+   MODULOS A IMPLEMENTAR
+   ========================== */
+
+void menuClientes() {
+    printf("\nModulo de clientes sera implementado na Parte 2.");
+}
+
+void menuLocacoes() {
+    printf("\nModulo de locacoes sera implementado na Parte 3.");
+}
+
+void menuRelatorios() {
+    printf("\nModulo de relatorios sera implementado na Parte 4.");
+}
