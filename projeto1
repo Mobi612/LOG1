@@ -1,0 +1,847 @@
+/*
+ * Sistema de Gerenciamento de Locadora de Veículos
+ * Linguagem: C
+ * Funcionalidades: Veículos, Clientes, Locações, Relatórios
+ * Persistência: Arquivos binários
+ */
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+
+/* ===================== CONSTANTES ===================== */
+#define MAX_VEICULOS   100
+#define MAX_CLIENTES   100
+#define MAX_LOCACOES   200
+
+#define ARQ_VEICULOS   "veiculos.dat"
+#define ARQ_CLIENTES   "clientes.dat"
+#define ARQ_LOCACOES   "locacoes.dat"
+
+/* ===================== STRUCTS ===================== */
+
+typedef struct {
+    int    id;
+    char   placa[10];
+    char   modelo[50];
+    char   marca[50];
+    int    ano;
+    float  diaria;
+    int    disponivel; /* 1 = disponível, 0 = alugado */
+} Veiculo;
+
+typedef struct {
+    int  id;
+    char nome[80];
+    char cnh[20];
+    char telefone[20];
+} Cliente;
+
+typedef struct {
+    int   id;
+    int   id_veiculo;
+    int   id_cliente;
+    char  data_retirada[20];
+    char  data_devolucao_prev[20];
+    char  data_devolucao_real[20];
+    int   dias;
+    float valor_total;
+    int   ativa; /* 1 = em andamento, 0 = encerrada */
+} Locacao;
+
+/* ===================== VARIÁVEIS GLOBAIS ===================== */
+
+Veiculo  veiculos[MAX_VEICULOS];
+Cliente  clientes[MAX_CLIENTES];
+Locacao  locacoes[MAX_LOCACOES];
+
+int total_veiculos = 0;
+int total_clientes = 0;
+int total_locacoes = 0;
+
+/* ===================== PROTÓTIPOS ===================== */
+
+/* Utilitários */
+void   limpar_tela(void);
+void   pausar(void);
+void   data_hoje(char *buf, int tamanho);
+void   limpar_buffer(void);
+
+/* Persistência */
+void   salvar_veiculos(void);
+void   carregar_veiculos(void);
+void   salvar_clientes(void);
+void   carregar_clientes(void);
+void   salvar_locacoes(void);
+void   carregar_locacoes(void);
+
+/* Veículos */
+void   menu_veiculos(void);
+void   cadastrar_veiculo(void);
+void   listar_veiculos(void);
+Veiculo *buscar_veiculo_placa(const char *placa);
+Veiculo *buscar_veiculo_id(int id);
+
+/* Clientes */
+void    menu_clientes(void);
+void    cadastrar_cliente(void);
+void    listar_clientes(void);
+Cliente *buscar_cliente_cnh(const char *cnh);
+Cliente *buscar_cliente_id(int id);
+
+/* Locações */
+void   menu_locacoes(void);
+void   registrar_aluguel(void);
+void   registrar_devolucao(void);
+void   listar_locacoes_ativas(void);
+
+/* Relatórios */
+void   menu_relatorios(void);
+void   relatorio_veiculos_disponiveis(void);
+void   relatorio_historico_locacoes(void);
+
+/* Menu principal */
+void   menu_principal(void);
+
+/* ===================== UTILITÁRIOS ===================== */
+
+void limpar_tela(void) {
+#ifdef _WIN32
+    system("cls");
+#else
+    system("clear");
+#endif
+}
+
+void pausar(void) {
+    printf("\nPressione ENTER para continuar...");
+    limpar_buffer();
+    getchar();
+}
+
+void data_hoje(char *buf, int tamanho) {
+    time_t t = time(NULL);
+    struct tm *tm_info = localtime(&t);
+    strftime(buf, tamanho, "%d/%m/%Y", tm_info);
+}
+
+void limpar_buffer(void) {
+    int c;
+    while ((c = getchar()) != '\n' && c != EOF);
+}
+
+/* ===================== PERSISTÊNCIA ===================== */
+
+void salvar_veiculos(void) {
+    FILE *f = fopen(ARQ_VEICULOS, "wb");
+    if (f == NULL) {
+        printf("[ERRO] Nao foi possivel salvar veiculos.\n");
+        return;
+    }
+    fwrite(&total_veiculos, sizeof(int), 1, f);
+    fwrite(veiculos, sizeof(Veiculo), total_veiculos, f);
+    fclose(f);
+}
+
+void carregar_veiculos(void) {
+    FILE *f = fopen(ARQ_VEICULOS, "rb");
+    if (f == NULL) return; /* Arquivo ainda não existe */
+    fread(&total_veiculos, sizeof(int), 1, f);
+    fread(veiculos, sizeof(Veiculo), total_veiculos, f);
+    fclose(f);
+}
+
+void salvar_clientes(void) {
+    FILE *f = fopen(ARQ_CLIENTES, "wb");
+    if (f == NULL) {
+        printf("[ERRO] Nao foi possivel salvar clientes.\n");
+        return;
+    }
+    fwrite(&total_clientes, sizeof(int), 1, f);
+    fwrite(clientes, sizeof(Cliente), total_clientes, f);
+    fclose(f);
+}
+
+void carregar_clientes(void) {
+    FILE *f = fopen(ARQ_CLIENTES, "rb");
+    if (f == NULL) return;
+    fread(&total_clientes, sizeof(int), 1, f);
+    fread(clientes, sizeof(Cliente), total_clientes, f);
+    fclose(f);
+}
+
+void salvar_locacoes(void) {
+    FILE *f = fopen(ARQ_LOCACOES, "wb");
+    if (f == NULL) {
+        printf("[ERRO] Nao foi possivel salvar locacoes.\n");
+        return;
+    }
+    fwrite(&total_locacoes, sizeof(int), 1, f);
+    fwrite(locacoes, sizeof(Locacao), total_locacoes, f);
+    fclose(f);
+}
+
+void carregar_locacoes(void) {
+    FILE *f = fopen(ARQ_LOCACOES, "rb");
+    if (f == NULL) return;
+    fread(&total_locacoes, sizeof(int), 1, f);
+    fread(locacoes, sizeof(Locacao), total_locacoes, f);
+    fclose(f);
+}
+
+/* ===================== MÓDULO DE VEÍCULOS ===================== */
+
+Veiculo *buscar_veiculo_placa(const char *placa) {
+    int i;
+    for (i = 0; i < total_veiculos; i++) {
+        if (strcmp(veiculos[i].placa, placa) == 0)
+            return &veiculos[i];
+    }
+    return NULL;
+}
+
+Veiculo *buscar_veiculo_id(int id) {
+    int i;
+    for (i = 0; i < total_veiculos; i++) {
+        if (veiculos[i].id == id)
+            return &veiculos[i];
+    }
+    return NULL;
+}
+
+void cadastrar_veiculo(void) {
+    if (total_veiculos >= MAX_VEICULOS) {
+        printf("[AVISO] Limite de veiculos atingido.\n");
+        pausar();
+        return;
+    }
+
+    Veiculo v;
+    v.id = total_veiculos + 1;
+    v.disponivel = 1;
+
+    limpar_tela();
+    printf("========== CADASTRO DE VEICULO ==========\n");
+
+    printf("Placa (ex: ABC1234): ");
+    scanf("%9s", v.placa);
+    limpar_buffer();
+
+    /* Verifica duplicidade de placa */
+    if (buscar_veiculo_placa(v.placa) != NULL) {
+        printf("[ERRO] Ja existe um veiculo com essa placa.\n");
+        pausar();
+        return;
+    }
+
+    printf("Modelo: ");
+    fgets(v.modelo, sizeof(v.modelo), stdin);
+    v.modelo[strcspn(v.modelo, "\n")] = '\0';
+
+    printf("Marca: ");
+    fgets(v.marca, sizeof(v.marca), stdin);
+    v.marca[strcspn(v.marca, "\n")] = '\0';
+
+    printf("Ano: ");
+    scanf("%d", &v.ano);
+    limpar_buffer();
+
+    do {
+        printf("Valor da diaria (R$): ");
+        scanf("%f", &v.diaria);
+        limpar_buffer();
+        if (v.diaria <= 0)
+            printf("[AVISO] Valor deve ser maior que zero.\n");
+    } while (v.diaria <= 0);
+
+    veiculos[total_veiculos] = v;
+    total_veiculos++;
+    salvar_veiculos();
+
+    printf("\n[OK] Veiculo cadastrado com sucesso! ID: %d\n", v.id);
+    pausar();
+}
+
+void listar_veiculos(void) {
+    limpar_tela();
+    printf("========== LISTA DE VEICULOS ==========\n");
+
+    if (total_veiculos == 0) {
+        printf("Nenhum veiculo cadastrado.\n");
+        pausar();
+        return;
+    }
+
+    printf("%-4s %-10s %-20s %-15s %-5s %-10s %-12s\n",
+           "ID", "Placa", "Modelo", "Marca", "Ano", "Diaria", "Status");
+    printf("%s\n", "--------------------------------------------------------------------");
+
+    int i;
+    for (i = 0; i < total_veiculos; i++) {
+        Veiculo *v = &veiculos[i];
+        printf("%-4d %-10s %-20s %-15s %-5d R$%-8.2f %-12s\n",
+               v->id, v->placa, v->modelo, v->marca, v->ano, v->diaria,
+               v->disponivel ? "Disponivel" : "Alugado");
+    }
+
+    printf("\nBuscar por placa? (S/N): ");
+    char op;
+    scanf(" %c", &op);
+    limpar_buffer();
+
+    if (op == 'S' || op == 's') {
+        char placa[10];
+        printf("Digite a placa: ");
+        scanf("%9s", placa);
+        limpar_buffer();
+
+        Veiculo *v = buscar_veiculo_placa(placa);
+        if (v == NULL) {
+            printf("[AVISO] Veiculo nao encontrado.\n");
+        } else {
+            printf("\n--- Detalhes ---\n");
+            printf("ID     : %d\n", v->id);
+            printf("Placa  : %s\n", v->placa);
+            printf("Modelo : %s\n", v->modelo);
+            printf("Marca  : %s\n", v->marca);
+            printf("Ano    : %d\n", v->ano);
+            printf("Diaria : R$ %.2f\n", v->diaria);
+            printf("Status : %s\n", v->disponivel ? "Disponivel" : "Alugado");
+        }
+    }
+
+    pausar();
+}
+
+void menu_veiculos(void) {
+    int opcao;
+    do {
+        limpar_tela();
+        printf("========== MODULO DE VEICULOS ==========\n");
+        printf("1. Cadastrar veiculo\n");
+        printf("2. Listar / Buscar veiculos\n");
+        printf("0. Voltar\n");
+        printf("Opcao: ");
+        scanf("%d", &opcao);
+        limpar_buffer();
+
+        switch (opcao) {
+            case 1: cadastrar_veiculo();  break;
+            case 2: listar_veiculos();    break;
+            case 0: break;
+            default: printf("[AVISO] Opcao invalida.\n"); pausar();
+        }
+    } while (opcao != 0);
+}
+
+/* ===================== MÓDULO DE CLIENTES ===================== */
+
+Cliente *buscar_cliente_cnh(const char *cnh) {
+    int i;
+    for (i = 0; i < total_clientes; i++) {
+        if (strcmp(clientes[i].cnh, cnh) == 0)
+            return &clientes[i];
+    }
+    return NULL;
+}
+
+Cliente *buscar_cliente_id(int id) {
+    int i;
+    for (i = 0; i < total_clientes; i++) {
+        if (clientes[i].id == id)
+            return &clientes[i];
+    }
+    return NULL;
+}
+
+void cadastrar_cliente(void) {
+    if (total_clientes >= MAX_CLIENTES) {
+        printf("[AVISO] Limite de clientes atingido.\n");
+        pausar();
+        return;
+    }
+
+    Cliente c;
+    c.id = total_clientes + 1;
+
+    limpar_tela();
+    printf("========== CADASTRO DE CLIENTE ==========\n");
+
+    printf("Nome completo: ");
+    fgets(c.nome, sizeof(c.nome), stdin);
+    c.nome[strcspn(c.nome, "\n")] = '\0';
+
+    printf("CNH: ");
+    scanf("%19s", c.cnh);
+    limpar_buffer();
+
+    if (buscar_cliente_cnh(c.cnh) != NULL) {
+        printf("[ERRO] Ja existe um cliente com essa CNH.\n");
+        pausar();
+        return;
+    }
+
+    printf("Telefone: ");
+    scanf("%19s", c.telefone);
+    limpar_buffer();
+
+    clientes[total_clientes] = c;
+    total_clientes++;
+    salvar_clientes();
+
+    printf("\n[OK] Cliente cadastrado! ID: %d\n", c.id);
+    pausar();
+}
+
+void listar_clientes(void) {
+    limpar_tela();
+    printf("========== LISTA DE CLIENTES ==========\n");
+
+    if (total_clientes == 0) {
+        printf("Nenhum cliente cadastrado.\n");
+        pausar();
+        return;
+    }
+
+    printf("%-4s %-30s %-15s %-15s\n", "ID", "Nome", "CNH", "Telefone");
+    printf("%s\n", "------------------------------------------------------------");
+
+    int i;
+    for (i = 0; i < total_clientes; i++) {
+        Cliente *c = &clientes[i];
+        printf("%-4d %-30s %-15s %-15s\n", c->id, c->nome, c->cnh, c->telefone);
+    }
+
+    printf("\nBuscar por CNH? (S/N): ");
+    char op;
+    scanf(" %c", &op);
+    limpar_buffer();
+
+    if (op == 'S' || op == 's') {
+        char cnh[20];
+        printf("Digite a CNH: ");
+        scanf("%19s", cnh);
+        limpar_buffer();
+
+        Cliente *c = buscar_cliente_cnh(cnh);
+        if (c == NULL) {
+            printf("[AVISO] Cliente nao encontrado.\n");
+        } else {
+            printf("\n--- Detalhes ---\n");
+            printf("ID       : %d\n", c->id);
+            printf("Nome     : %s\n", c->nome);
+            printf("CNH      : %s\n", c->cnh);
+            printf("Telefone : %s\n", c->telefone);
+        }
+    }
+
+    pausar();
+}
+
+void menu_clientes(void) {
+    int opcao;
+    do {
+        limpar_tela();
+        printf("========== MODULO DE CLIENTES ==========\n");
+        printf("1. Cadastrar cliente\n");
+        printf("2. Listar / Buscar clientes\n");
+        printf("0. Voltar\n");
+        printf("Opcao: ");
+        scanf("%d", &opcao);
+        limpar_buffer();
+
+        switch (opcao) {
+            case 1: cadastrar_cliente(); break;
+            case 2: listar_clientes();   break;
+            case 0: break;
+            default: printf("[AVISO] Opcao invalida.\n"); pausar();
+        }
+    } while (opcao != 0);
+}
+
+/* ===================== MÓDULO DE LOCAÇÕES ===================== */
+
+void registrar_aluguel(void) {
+    if (total_locacoes >= MAX_LOCACOES) {
+        printf("[AVISO] Limite de locacoes atingido.\n");
+        pausar();
+        return;
+    }
+
+    limpar_tela();
+    printf("========== REGISTRAR ALUGUEL ==========\n");
+
+    /* Selecionar veículo */
+    char placa[10];
+    printf("Placa do veiculo: ");
+    scanf("%9s", placa);
+    limpar_buffer();
+
+    Veiculo *v = buscar_veiculo_placa(placa);
+    if (v == NULL) {
+        printf("[ERRO] Veiculo nao encontrado.\n");
+        pausar();
+        return;
+    }
+    if (!v->disponivel) {
+        printf("[ERRO] Veiculo ja esta alugado.\n");
+        pausar();
+        return;
+    }
+
+    /* Selecionar cliente */
+    char cnh[20];
+    printf("CNH do cliente: ");
+    scanf("%19s", cnh);
+    limpar_buffer();
+
+    Cliente *c = buscar_cliente_cnh(cnh);
+    if (c == NULL) {
+        printf("[ERRO] Cliente nao encontrado.\n");
+        pausar();
+        return;
+    }
+
+    /* Verificar se cliente ja tem locação ativa */
+    int i;
+    for (i = 0; i < total_locacoes; i++) {
+        if (locacoes[i].id_cliente == c->id && locacoes[i].ativa) {
+            printf("[ERRO] Cliente ja possui uma locacao ativa.\n");
+            pausar();
+            return;
+        }
+    }
+
+    /* Quantidade de dias */
+    int dias;
+    do {
+        printf("Quantidade de dias: ");
+        scanf("%d", &dias);
+        limpar_buffer();
+        if (dias <= 0)
+            printf("[AVISO] Numero de dias deve ser maior que zero.\n");
+    } while (dias <= 0);
+
+    float total = dias * v->diaria;
+
+    /* Resumo */
+    printf("\n--- Resumo da Locacao ---\n");
+    printf("Veiculo : %s %s (%s)\n", v->marca, v->modelo, v->placa);
+    printf("Cliente : %s (CNH: %s)\n", c->nome, c->cnh);
+    printf("Dias    : %d\n", dias);
+    printf("Diaria  : R$ %.2f\n", v->diaria);
+    printf("TOTAL   : R$ %.2f\n", total);
+
+    printf("\nConfirmar? (S/N): ");
+    char op;
+    scanf(" %c", &op);
+    limpar_buffer();
+
+    if (op != 'S' && op != 's') {
+        printf("Operacao cancelada.\n");
+        pausar();
+        return;
+    }
+
+    /* Registrar locação */
+    Locacao l;
+    l.id          = total_locacoes + 1;
+    l.id_veiculo  = v->id;
+    l.id_cliente  = c->id;
+    l.dias        = dias;
+    l.valor_total = total;
+    l.ativa       = 1;
+    strcpy(l.data_devolucao_real, "---");
+
+    data_hoje(l.data_retirada, sizeof(l.data_retirada));
+
+    /* Data prevista de devolução (simplificada: apenas registra os dias) */
+    snprintf(l.data_devolucao_prev, sizeof(l.data_devolucao_prev),
+             "em %d dia(s)", dias);
+
+    /* Atualizar status do veículo */
+    v->disponivel = 0;
+
+    locacoes[total_locacoes] = l;
+    total_locacoes++;
+
+    salvar_veiculos();
+    salvar_locacoes();
+
+    printf("\n[OK] Locacao registrada! ID: %d\n", l.id);
+    pausar();
+}
+
+void registrar_devolucao(void) {
+    limpar_tela();
+    printf("========== REGISTRAR DEVOLUCAO ==========\n");
+
+    /* Listar locações ativas para facilitar */
+    int encontrou = 0;
+    int i;
+    for (i = 0; i < total_locacoes; i++) {
+        if (locacoes[i].ativa) {
+            if (!encontrou) {
+                printf("Locacoes ativas:\n");
+                printf("%-4s %-10s %-30s %-12s %-10s\n",
+                       "ID", "Placa", "Cliente", "Retirada", "Total");
+                printf("%s\n", "------------------------------------------------------------");
+                encontrou = 1;
+            }
+            Veiculo *v = buscar_veiculo_id(locacoes[i].id_veiculo);
+            Cliente *c = buscar_cliente_id(locacoes[i].id_cliente);
+            printf("%-4d %-10s %-30s %-12s R$%.2f\n",
+                   locacoes[i].id,
+                   v ? v->placa : "?",
+                   c ? c->nome  : "?",
+                   locacoes[i].data_retirada,
+                   locacoes[i].valor_total);
+        }
+    }
+
+    if (!encontrou) {
+        printf("Nenhuma locacao ativa no momento.\n");
+        pausar();
+        return;
+    }
+
+    int id_loc;
+    printf("\nID da locacao para devolver: ");
+    scanf("%d", &id_loc);
+    limpar_buffer();
+
+    /* Buscar locação */
+    Locacao *loc = NULL;
+    for (i = 0; i < total_locacoes; i++) {
+        if (locacoes[i].id == id_loc && locacoes[i].ativa) {
+            loc = &locacoes[i];
+            break;
+        }
+    }
+
+    if (loc == NULL) {
+        printf("[ERRO] Locacao ativa nao encontrada com esse ID.\n");
+        pausar();
+        return;
+    }
+
+    Veiculo *v = buscar_veiculo_id(loc->id_veiculo);
+    Cliente *c = buscar_cliente_id(loc->id_cliente);
+
+    printf("\n--- Confirmacao de Devolucao ---\n");
+    if (v) printf("Veiculo : %s %s (%s)\n", v->marca, v->modelo, v->placa);
+    if (c) printf("Cliente : %s\n", c->nome);
+    printf("Valor cobrado: R$ %.2f\n", loc->valor_total);
+
+    printf("\nConfirmar devolucao? (S/N): ");
+    char op;
+    scanf(" %c", &op);
+    limpar_buffer();
+
+    if (op != 'S' && op != 's') {
+        printf("Operacao cancelada.\n");
+        pausar();
+        return;
+    }
+
+    /* Registrar devolução */
+    data_hoje(loc->data_devolucao_real, sizeof(loc->data_devolucao_real));
+    loc->ativa = 0;
+
+    if (v) v->disponivel = 1;
+
+    salvar_veiculos();
+    salvar_locacoes();
+
+    printf("\n[OK] Devolucao registrada em %s.\n", loc->data_devolucao_real);
+    pausar();
+}
+
+void listar_locacoes_ativas(void) {
+    limpar_tela();
+    printf("========== LOCACOES ATIVAS ==========\n");
+
+    int encontrou = 0;
+    int i;
+    for (i = 0; i < total_locacoes; i++) {
+        if (locacoes[i].ativa) {
+            if (!encontrou) {
+                printf("%-4s %-10s %-30s %-12s %-5s %-10s\n",
+                       "ID", "Placa", "Cliente", "Retirada", "Dias", "Total");
+                printf("%s\n", "--------------------------------------------------------------");
+                encontrou = 1;
+            }
+            Veiculo *v = buscar_veiculo_id(locacoes[i].id_veiculo);
+            Cliente *c = buscar_cliente_id(locacoes[i].id_cliente);
+            printf("%-4d %-10s %-30s %-12s %-5d R$%.2f\n",
+                   locacoes[i].id,
+                   v ? v->placa : "?",
+                   c ? c->nome  : "?",
+                   locacoes[i].data_retirada,
+                   locacoes[i].dias,
+                   locacoes[i].valor_total);
+        }
+    }
+
+    if (!encontrou)
+        printf("Nenhuma locacao ativa.\n");
+
+    pausar();
+}
+
+void menu_locacoes(void) {
+    int opcao;
+    do {
+        limpar_tela();
+        printf("========== MODULO DE LOCACOES ==========\n");
+        printf("1. Registrar aluguel\n");
+        printf("2. Registrar devolucao\n");
+        printf("3. Ver locacoes ativas\n");
+        printf("0. Voltar\n");
+        printf("Opcao: ");
+        scanf("%d", &opcao);
+        limpar_buffer();
+
+        switch (opcao) {
+            case 1: registrar_aluguel();        break;
+            case 2: registrar_devolucao();      break;
+            case 3: listar_locacoes_ativas();   break;
+            case 0: break;
+            default: printf("[AVISO] Opcao invalida.\n"); pausar();
+        }
+    } while (opcao != 0);
+}
+
+/* ===================== RELATÓRIOS ===================== */
+
+void relatorio_veiculos_disponiveis(void) {
+    limpar_tela();
+    printf("========== VEICULOS DISPONIVEIS ==========\n");
+
+    int encontrou = 0;
+    int i;
+    for (i = 0; i < total_veiculos; i++) {
+        if (veiculos[i].disponivel) {
+            if (!encontrou) {
+                printf("%-4s %-10s %-20s %-15s %-5s %-10s\n",
+                       "ID", "Placa", "Modelo", "Marca", "Ano", "Diaria");
+                printf("%s\n", "--------------------------------------------------------------");
+                encontrou = 1;
+            }
+            Veiculo *v = &veiculos[i];
+            printf("%-4d %-10s %-20s %-15s %-5d R$%.2f\n",
+                   v->id, v->placa, v->modelo, v->marca, v->ano, v->diaria);
+        }
+    }
+
+    if (!encontrou)
+        printf("Nenhum veiculo disponivel no momento.\n");
+
+    pausar();
+}
+
+void relatorio_historico_locacoes(void) {
+    limpar_tela();
+    printf("========== HISTORICO DE LOCACOES ==========\n");
+
+    if (total_locacoes == 0) {
+        printf("Nenhuma locacao registrada.\n");
+        pausar();
+        return;
+    }
+
+    printf("%-4s %-10s %-25s %-12s %-12s %-10s %-8s\n",
+           "ID", "Placa", "Cliente", "Retirada", "Devolucao", "Total", "Status");
+    printf("%s\n", "------------------------------------------------------------------------------");
+
+    int i;
+    for (i = 0; i < total_locacoes; i++) {
+        Locacao *l = &locacoes[i];
+        Veiculo *v = buscar_veiculo_id(l->id_veiculo);
+        Cliente *c = buscar_cliente_id(l->id_cliente);
+
+        printf("%-4d %-10s %-25s %-12s %-12s R$%-7.2f %-8s\n",
+               l->id,
+               v ? v->placa : "?",
+               c ? c->nome  : "?",
+               l->data_retirada,
+               l->ativa ? l->data_devolucao_prev : l->data_devolucao_real,
+               l->valor_total,
+               l->ativa ? "Ativa" : "Encerrada");
+    }
+
+    pausar();
+}
+
+void menu_relatorios(void) {
+    int opcao;
+    do {
+        limpar_tela();
+        printf("========== RELATORIOS ==========\n");
+        printf("1. Veiculos disponiveis\n");
+        printf("2. Historico de locacoes\n");
+        printf("0. Voltar\n");
+        printf("Opcao: ");
+        scanf("%d", &opcao);
+        limpar_buffer();
+
+        switch (opcao) {
+            case 1: relatorio_veiculos_disponiveis(); break;
+            case 2: relatorio_historico_locacoes();   break;
+            case 0: break;
+            default: printf("[AVISO] Opcao invalida.\n"); pausar();
+        }
+    } while (opcao != 0);
+}
+
+/* ===================== MENU PRINCIPAL ===================== */
+
+void menu_principal(void) {
+    int opcao;
+    do {
+        limpar_tela();
+        printf("╔══════════════════════════════════════╗\n");
+        printf("║    SISTEMA DE LOCADORA DE VEICULOS   ║\n");
+        printf("╚══════════════════════════════════════╝\n");
+        printf("  Veiculos  cadastrados : %d\n", total_veiculos);
+        printf("  Clientes  cadastrados : %d\n", total_clientes);
+        printf("  Locacoes  registradas : %d\n", total_locacoes);
+        printf("----------------------------------------\n");
+        printf("  1. Gerenciar Veiculos\n");
+        printf("  2. Gerenciar Clientes\n");
+        printf("  3. Locacoes\n");
+        printf("  4. Relatorios\n");
+        printf("  0. Sair\n");
+        printf("----------------------------------------\n");
+        printf("  Opcao: ");
+        scanf("%d", &opcao);
+        limpar_buffer();
+
+        switch (opcao) {
+            case 1: menu_veiculos();   break;
+            case 2: menu_clientes();   break;
+            case 3: menu_locacoes();   break;
+            case 4: menu_relatorios(); break;
+            case 0:
+                printf("\nEncerrando o sistema. Ate logo!\n");
+                break;
+            default:
+                printf("[AVISO] Opcao invalida.\n");
+                pausar();
+        }
+    } while (opcao != 0);
+}
+
+/* ===================== MAIN ===================== */
+
+int main(void) {
+    /* Carregar dados persistidos */
+    carregar_veiculos();
+    carregar_clientes();
+    carregar_locacoes();
+
+    menu_principal();
+
+    return 0;
+}
